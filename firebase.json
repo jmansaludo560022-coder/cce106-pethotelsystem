@@ -1,0 +1,51 @@
+{
+  "flutter": {
+    "platforms": {
+      "android": {
+        "default": {
+          "projectId": "cce106-pethotelsystem",
+          "appId": "1:1027623585856:android:a530613a1760b03f4477a5",
+          "fileOutput": "android/app/google-services.json"
+        }
+      },
+      "dart": {
+        "lib/firebase_options.dart": {
+          "projectId": "cce106-pethotelsystem",
+          "configurations": {
+            "android": "1:1027623585856:android:a530613a1760b03f4477a5",
+            "ios": "1:1027623585856:ios:a5ac02b0a820f81a4477a5",
+            "macos": "1:1027623585856:ios:a5ac02b0a820f81a4477a5",
+            "web": "1:1027623585856:web:b424ee821dc8d5174477a5",
+            "windows": "1:1027623585856:web:7bd426ea3c391eac4477a5"
+          }
+        }
+      }
+    }
+  },
+  "firestore": {
+    "rules": "firestore.rules"
+  },
+  "storage": {
+    "rules": "storage.rules"
+  },
+  "emulators": {
+    "auth": {
+      "host": "127.0.0.1",
+      "port": 9099
+    },
+    "firestore": {
+      "host": "127.0.0.1",
+      "port": 8080
+    },
+    "storage": {
+      "host": "127.0.0.1",
+      "port": 9199
+    },
+    "ui": {
+      "enabled": true,
+      "host": "127.0.0.1",
+      "port": 4000
+    },
+    "singleProjectMode": true
+  }
+}

@@ -1,0 +1,20 @@
+# Native launch splash (Enhancement Spec §5, roadmap Phase 2).
+# Shown by Android / iOS / the browser before Flutter draws its first frame,
+# then replaced by the animated LaunchScreen (lib/features/launch).
+# After changing this file or the images, regenerate with:
+#   dart run flutter_native_splash:create
+flutter_native_splash:
+  color: "#FAF3E6"                       # AppColors.cream
+  image: assets/splash/splash_logo.png    # mascot head, 768 px wide (4x)
+
+  # Android 12+ uses its own system splash: centred icon on a plain colour.
+  # The icon is 1152x1152 with the art inside the 768 px safe circle.
+  android_12:
+    image: assets/splash/splash_android12.png
+    color: "#FAF3E6"
+
+  android: true
+  ios: true
+  web: true
+  web_image_mode: center
+  fullscreen: false

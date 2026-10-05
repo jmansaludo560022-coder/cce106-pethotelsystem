@@ -1,0 +1,29 @@
+{
+  "project_info": {
+    "project_number": "1027623585856",
+    "project_id": "cce106-pethotelsystem",
+    "storage_bucket": "cce106-pethotelsystem.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:1027623585856:android:a530613a1760b03f4477a5",
+        "android_client_info": {
+          "package_name": "com.example.flutter_pethotelbooking"
+        }
+      },
+      "oauth_client": [],
+      "api_key": [
+        {
+          "current_key": "AIzaSyCSqgVK_Mf7IjIzRR_H6yu_62YCTatVD64"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": []
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}

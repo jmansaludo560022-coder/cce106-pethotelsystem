@@ -1,0 +1,37 @@
+rules_version = '2';
+
+// Pet Hotel Booking System — Cloud Storage rules (vaccination records, pet and room photos).
+//
+// NOT DEPLOYED automatically. Review, then deploy with:
+//   firebase deploy --only storage
+// These rules read the user's role from Firestore (firestore.get). The first
+// deploy asks you to allow Storage to access Firestore — accept it.
+service firebase.storage {
+  match /b/{bucket}/o {
+    function signedIn() { return request.auth != null; }
+    function profile() { return firestore.get(/databases/(default)/documents/users/$(request.auth.uid)).data; }
+    function isAdmin() { return signedIn() && profile().role == 'admin'; }
+    function ownsCustomer(cusID) { return signedIn() && profile().cusID == cusID; }
+    // Images only, up to 5 MB (Q-10).
+    function validImage() {
+      return request.resource.size < 5 * 1024 * 1024 && request.resource.contentType.matches('image/.*');
+    }
+    // Decision D5: a PDF is accepted only as the vaccination record, up to 5 MB.
+    function validPdf() {
+      return request.resource.size < 5 * 1024 * 1024 && request.resource.contentType == 'application/pdf';
+    }
+
+    // pets/{cusID}/{petID}/vaccination.<ext> and pets/{cusID}/{petID}/photo.<ext>
+    match /pets/{cusID}/{petID}/{fileName} {
+      allow read: if isAdmin() || ownsCustomer(cusID);
+      allow write: if (isAdmin() || ownsCustomer(cusID))
+        && (validImage() || (fileName == 'vaccination.pdf' && validPdf()));
+    }
+
+    // rooms/{roomID}/{file}
+    match /rooms/{allPaths=**} {
+      allow read: if signedIn();
+      allow write: if isAdmin() && validImage();
+    }
+  }
+}

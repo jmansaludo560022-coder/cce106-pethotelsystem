@@ -1,0 +1,154 @@
+rules_version = '2';
+
+// Pet Hotel Booking System — Firestore security rules (master spec §3.6, DATA-004).
+//
+// NOT DEPLOYED automatically. Review, then deploy with:
+//   firebase deploy --only firestore:rules
+//
+// Roles: exactly two (admin, customer). A customer may only read and write
+// their own customer record, pets, bookings, payments and reviews; the admin
+// may manage everything. Nobody can change their own role.
+service cloud.firestore {
+  match /databases/{db}/documents {
+
+    function signedIn() { return request.auth != null; }
+    function userPath() { return /databases/$(db)/documents/users/$(request.auth.uid); }
+    function hasProfile() { return signedIn() && exists(userPath()); }
+    function profile() { return get(userPath()).data; }
+    function isAdmin() { return hasProfile() && profile().role == 'admin' && profile().status == 'Active'; }
+    function myCusID() { return hasProfile() ? profile().get('cusID', '') : ''; }
+    function changedKeys() { return request.resource.data.diff(resource.data).affectedKeys(); }
+    function onlyChanged(keys) { return changedKeys().hasOnly(keys); }
+    function unchanged(keys) { return !changedKeys().hasAny(keys); }
+
+    // ---------------- users ----------------
+    match /users/{uid} {
+      allow read: if signedIn() && (request.auth.uid == uid || isAdmin());
+      // Self-registration can only ever create a customer profile.
+      allow create: if signedIn() && request.auth.uid == uid
+        && request.resource.data.role == 'customer'
+        && request.resource.data.status == 'Active';
+      allow update: if isAdmin()
+        || (signedIn() && request.auth.uid == uid && unchanged(['role', 'status', 'cusID', 'userID'])
+            // the email may only follow the verified sign-in email
+            && (unchanged(['email']) || request.resource.data.email == request.auth.token.email));
+      allow delete: if isAdmin();
+    }
+
+    // ---------------- customers (registered + walk-in) ----------------
+    match /customers/{cusID} {
+      allow read: if isAdmin()
+        || (signedIn() && (cusID == myCusID()
+            || resource.data.userID == request.auth.uid
+            // registration: find an unlinked walk-in record with my own email
+            || (resource.data.isWalkIn == true && resource.data.email == request.auth.token.email)));
+      // Registration creates the customer's own record; walk-ins are admin-only.
+      allow create: if isAdmin()
+        || (signedIn() && request.resource.data.userID == request.auth.uid
+            && request.resource.data.isWalkIn == false
+            && request.resource.data.email == request.auth.token.email);
+      allow update: if isAdmin()
+        // own profile: identity fields cannot change; the email may only
+        // follow the verified sign-in email (after a verified email change)
+        || (signedIn() && cusID == myCusID() && unchanged(['userID', 'isWalkIn', 'cusID', 'createdAt'])
+            && (unchanged(['email']) || request.resource.data.email == request.auth.token.email))
+        // link a walk-in record with my email to my new account
+        || (signedIn() && resource.data.isWalkIn == true
+            && resource.data.email == request.auth.token.email
+            && request.resource.data.userID == request.auth.uid
+            && request.resource.data.isWalkIn == false
+            && unchanged(['email', 'cusID', 'createdAt']));
+      allow delete: if isAdmin();
+    }
+
+    // ---------------- pets ----------------
+    // The vaccination review (Validated / Rejected) belongs to the admin only: a customer
+    // can never mark their own file as validated, and a replaced file goes back to Pending.
+    match /pets/{petID} {
+      allow read: if isAdmin() || (signedIn() && resource.data.cusID == myCusID());
+      allow create: if isAdmin()
+        || (signedIn() && request.resource.data.cusID == myCusID()
+            && request.resource.data.get('vaccinationStatus', 'Pending') == 'Pending');
+      allow update: if isAdmin()
+        || (signedIn() && resource.data.cusID == myCusID() && request.resource.data.cusID == resource.data.cusID
+            && (request.resource.data.get('vaccinationStatus', 'Pending') == 'Pending'
+                || (unchanged(['vaccinationStatus', 'vaccinationNote', 'vaccinationReviewedAt', 'vaccinationFile']))));
+      allow delete: if isAdmin() || (signedIn() && resource.data.cusID == myCusID());
+    }
+
+    // ---------------- catalog (read by any signed-in user) ----------------
+    match /room_types/{id} { allow read: if signedIn(); allow write: if isAdmin(); }
+    match /rooms/{id}      { allow read: if signedIn(); allow write: if isAdmin(); }
+    match /add_ons/{id}    { allow read: if signedIn(); allow write: if isAdmin(); }
+
+    // ---------------- bookings ----------------
+    match /bookings/{bookingID} {
+      allow read: if isAdmin() || (signedIn() && resource.data.custID == myCusID());
+      // Customers create their own PENDING app bookings only.
+      allow create: if isAdmin()
+        || (signedIn() && request.resource.data.custID == myCusID()
+            && request.resource.data.status == 'pending'
+            && request.resource.data.source == 'app'
+            && request.resource.data.totalAmount > 0
+            && get(/databases/$(db)/documents/pets/$(request.resource.data.petID)).data.get('vaccinationStatus', 'Pending') == 'Validated');
+      // Customers may only cancel their own pending/approved booking (Q-15).
+      allow update: if isAdmin()
+        || (signedIn() && resource.data.custID == myCusID()
+            && resource.data.status in ['pending', 'approved']
+            && request.resource.data.status == 'cancelled'
+            && onlyChanged(['status', 'cancelledAt', 'cancelledBy']));
+      allow delete: if false;
+    }
+
+    // Per-room booking lock (BookingService.createBooking): a counter that every
+    // booking transaction for the room bumps, so simultaneous bookings for the
+    // last slot are serialised. It holds no personal data.
+    match /room_locks/{roomID} {
+      allow read: if signedIn();
+      allow create, update: if signedIn()
+        && request.resource.data.keys().hasOnly(['version', 'updatedAt'])
+        && request.resource.data.version is int;
+      allow delete: if false;
+    }
+
+    // Room + dates only, readable by all signed-in users for availability (Q-06).
+    match /room_reservations/{bookingID} {
+      allow read: if signedIn();
+      allow create: if isAdmin()
+        || (signedIn() && request.resource.data.custID == myCusID()
+            && request.resource.data.status == 'pending'
+            && getAfter(/databases/$(db)/documents/bookings/$(bookingID)).data.custID == myCusID());
+      allow update: if isAdmin()
+        || (signedIn() && resource.data.custID == myCusID()
+            && request.resource.data.status == 'cancelled' && onlyChanged(['status']));
+      allow delete: if isAdmin();
+    }
+
+    // ---------------- payments ----------------
+    match /payments/{paymentID} {
+      allow read: if isAdmin() || (signedIn() && resource.data.custID == myCusID());
+      // Customers can only add SIMULATED e-wallet payments for themselves (Q-07).
+      allow create: if isAdmin()
+        || (signedIn() && request.resource.data.custID == myCusID()
+            && request.resource.data.isSimulated == true
+            && request.resource.data.recordedBy == 'customer'
+            && request.resource.data.amount > 0);
+      allow update, delete: if isAdmin();
+    }
+
+    // ---------------- reviews (doc ID = booking ID → one per booking) ----------------
+    match /reviews/{bookingID} {
+      allow read: if signedIn();
+      allow create: if signedIn()
+        && request.resource.data.custID == myCusID()
+        && get(/databases/$(db)/documents/bookings/$(bookingID)).data.custID == myCusID()
+        && get(/databases/$(db)/documents/bookings/$(bookingID)).data.status == 'checked_out'
+        && request.resource.data.rating >= 1 && request.resource.data.rating <= 5;
+      allow update: if signedIn() && resource.data.custID == myCusID() && onlyChanged(['rating', 'comment']);
+      allow delete: if isAdmin(); // REV-004: admin can view and delete only
+    }
+
+    // Email queue: written only by server code (Cloud Functions / extensions).
+    match /mail/{id} { allow read, write: if false; }
+  }
+}
